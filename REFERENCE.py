@@ -25,3 +25,9 @@ cmds.cutKey('cube1', time=(10, 20), attribute='translateX', option="keys")
 
 # Cut from all active objects all keys in the range 0 to 60 #
 cmds.cutKey(time=(0, 60))
+
+# Using a global variable
+SELECTEDOBJECT = 'something'
+..in function:
+global SELECTEDOBJECT
+SELECTEDOBJECT = selectedItems[0]

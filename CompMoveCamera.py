@@ -6,16 +6,20 @@ import pprint
 PPrint = pprint.PrettyPrinter(width=10).pprint
 
 # Object to hold all collected data
-FINAL = {'X': {}, 'Y': {}, 'Z': {}, 'maxFocalLength': None}
-SELECTEDOBJECT = None
+FINAL = {}
+
 STARTINGFILMBACKHEIGHT = 20.25
 STARTINGFILMBACKWIDTH = 36
 DEFAULTRESOLUTIONWIDTH = 1920
 DEFAULTRESOLUTIONHEIGHT = 1080
 
 
-def getSelectedCamera():
-    # Get all selected items
+def getAllValuesWeNeed():
+    global FINAL
+
+    # region Get the selected camera object
+
+    # Get camera object
     selectedItems = cmds.ls(sl=True, long=True)
 
     # Check if no items are selected
@@ -24,20 +28,27 @@ def getSelectedCamera():
         print(error)
         raise ValueError(error)
 
-    # Get the first selected item
+    # Get camera shapes
+    shapes = cmds.listRelatives(selectedItems[0], shapes=True)
+
+    # Check if no shapes are attached
+    if len(shapes) < 1:
+        error = "ERROR: No shapes on camera object"
+        print(error)
+        raise ValueError(error)
+
     # TODO: check if the selected item is a camera
-    global SELECTEDOBJECT
-    SELECTEDOBJECT = selectedItems[0]
+    FINAL['selected'] = {
+        'camera': selectedItems[0],
+        'shape': shapes[0]
+    }
 
+    # endregion
 
-def setupFocalLength():
-    # Get and set focal length to the max focal length in the animation
-
-    # Get shapes on object (to access focal length)
-    shapes = cmds.listRelatives(SELECTEDOBJECT, shapes=True)
+    # region Get the focal lengths
 
     # Set shape name
-    shapeName = shapes[0] + '.focalLength'
+    shapeName = FINAL['selected']['shape'] + '.focalLength'
 
     # Get the max and min keyframes of the attribute
     keyframes = cmds.keyframe(shapeName, query=True)
@@ -45,43 +56,34 @@ def setupFocalLength():
     maxKeyframe = int(max(keyframes))
 
     # Reset the min and max variables to a value that will be replaced immediately (we will use it below to hold the min and max values)
-    maxValue = -9999999999
-    minValue = 9999999999
+    maxFocalLength = -9999999999
+    minFocalLength = 9999999999
 
     # Loop through every frame between the min and max keyframes
     for frame in range(minKeyframe, maxKeyframe):
         # Get the max value of the focal length
         value = cmds.getAttr(shapeName, time=frame)
-        if value > maxValue:
-            maxValue = value
-        if value < minValue:
-            minValue = value
-
-    # Delete all the camera's focal length keys
-    cmds.cutKey(
-        shapeName,
-        time=(minKeyframe, maxKeyframe),
-        attribute='focalLength',
-        option="keys"
-    )
-
-    # Round the value up
-    maxValueRoundedUp = math.ceil(maxValue)
-
-    # Set the new max focal length
-    cmds.setAttr(shapeName, maxValueRoundedUp)
+        if value > maxFocalLength:
+            maxFocalLength = value
+        if value < minFocalLength:
+            minFocalLength = value
 
     # Save everything to the FINAL object in case of later use
-    global FINAL
-    FINAL['maxFocalLength'] = maxValue
-    FINAL['minFocalLength'] = minValue
+    FINAL['focalLength'] = {
+        'keyframes': {
+            'min': minKeyframe,
+            'max': maxKeyframe,
+        },
+        'value': {
+            'min': minFocalLength,
+            'max': maxFocalLength,
+        }
+    }
+    # endregion
 
+    # region Get rotation averages
 
-def setupRotations():
-    # Collect the rotation averages. Delete all the current keyframes. Set the camera's rotations to the rotation averages.
-
-    # Setup the attribute name for later use
-    attrNameBase = SELECTEDOBJECT + '.rotate'
+    attrNameBase = FINAL['selected']['camera'] + '.rotate'
 
     # Loop through each axis
     for axis in ['X', 'Y', 'Z']:
@@ -110,105 +112,130 @@ def setupRotations():
         # Get the rotation average
         rotationAverage = (maxValue + minValue) / 2
 
-        # Delete all the camera's rotation keys
-        cmds.cutKey(
-            SELECTEDOBJECT,
-            time=(minKeyframe, maxKeyframe),
-            attribute='rotate' + axis,
-            option="keys"
-        )
-
-        # Set the new rotation average
-        cmds.setAttr(attrName, rotationAverage)
-
         # Field of angle increase (it is the triangle shape in the Word Reference document)
-        fieldOfAngleDegrees = maxValue - rotationAverage
-        fieldOfAngleRadians = math.radians(fieldOfAngleDegrees)
+        fieldOfAngleInDegrees = maxValue - rotationAverage
+        fieldOfAngleInRadians = math.radians(fieldOfAngleInDegrees)
 
         # Save everything to the FINAL object in case of later use
-        global FINAL
-        FINAL[axis]['attrName'] = attrName
-        FINAL[axis]['maxValue'] = maxValue
-        FINAL[axis]['minValue'] = minValue
-        FINAL[axis]['maxKeyframe'] = maxKeyframe
-        FINAL[axis]['minKeyframe'] = minKeyframe
-        FINAL[axis]['rotationAverage'] = rotationAverage
-        FINAL[axis]['fieldOfAngleDegrees'] = fieldOfAngleDegrees
-        FINAL[axis]['fieldOfAngleRadians'] = fieldOfAngleRadians
+        FINAL[axis] = {
+            'attrName': attrName,
+            'rotationAverage': rotationAverage,
+            'fieldOfAngleInDegrees': fieldOfAngleInDegrees,
+            'fieldOfAngleInRadians': fieldOfAngleInRadians,
+            'value': {
+                'min': minValue,
+                'max': maxValue
+            },
+            'keyframes': {
+                'min': minKeyframe,
+                'max': maxKeyframe
+            },
+        }
+    # endregion
 
 
-def setupFieldOfView():
-    # y = width
-    # x = height
+def doTheMath():
     global FINAL
-    focalMinVariable = 2 * FINAL['minFocalLength']
-    focalMaxVariable = 2 * FINAL['maxFocalLength']
 
-    xHeight = STARTINGFILMBACKHEIGHT / focalMinVariable
-    yWidth = STARTINGFILMBACKWIDTH / focalMinVariable
+    focalMin = FINAL['focalLength']['value']['min']
+    focalMax = FINAL['focalLength']['value']['min']
+
+    xHeight = STARTINGFILMBACKHEIGHT / (focalMin * 2)
+    yWidth = STARTINGFILMBACKWIDTH / (focalMin * 2)
 
     xOriginalFieldOfView = math.atan(xHeight)
     yOriginalFieldOfView = math.atan(yWidth)
 
-    xTan = xOriginalFieldOfView + FINAL['X']['fieldOfAngleRadians']
-    yTan = yOriginalFieldOfView + FINAL['Y']['fieldOfAngleRadians']
+    xTan = xOriginalFieldOfView + FINAL['X']['fieldOfAngleInRadians']
+    yTan = yOriginalFieldOfView + FINAL['Y']['fieldOfAngleInRadians']
 
-    heightNewCameraAperture = focalMaxVariable * math.tan(xTan)
-    widthNewCameraAperture = focalMaxVariable * math.tan(yTan)
+    heightNewCameraAperture = (2 * focalMax) * math.tan(xTan)
+    widthNewCameraAperture = (2 * focalMax) * math.tan(yTan)
 
-    print('heightNewCameraAperture', heightNewCameraAperture)
-    print('widthNewCameraAperture', widthNewCameraAperture)
-    print('focalMaxVariable', focalMaxVariable)
-    print('yTan', yTan)
-    print(FINAL)
+    tempHeight = heightNewCameraAperture / STARTINGFILMBACKHEIGHT
+    tempWidth = widthNewCameraAperture / STARTINGFILMBACKWIDTH
 
-    # Get shapes on object (to access focal length)
-    shapes = cmds.listRelatives(SELECTEDOBJECT, shapes=True)
-
-    # Set the new camera apeture lengths
-    cmds.setAttr(shapes[0] + '.verticalFilmAperture',
-                 round(heightNewCameraAperture, 2))
-    cmds.setAttr(shapes[0] + '.horizontalFilmAperture',
-                 round(widthNewCameraAperture, 2))
+    newCustomResolutionHeight = DEFAULTRESOLUTIONHEIGHT * tempHeight
+    newCustomResolutionWidth = DEFAULTRESOLUTIONWIDTH * tempWidth
 
     # Save everything to the FINAL object in case of later use
     FINAL['X']['originalFieldOfView'] = xOriginalFieldOfView
     FINAL['Y']['originalFieldOfView'] = yOriginalFieldOfView
     FINAL['heightNewCameraAperture'] = heightNewCameraAperture
     FINAL['widthNewCameraAperture'] = widthNewCameraAperture
-
-
-def setupCustomResolutions():
-    tempHeight = FINAL['heightNewCameraAperture'] / STARTINGFILMBACKHEIGHT
-    tempWidth = FINAL['widthNewCameraAperture'] / STARTINGFILMBACKWIDTH
-
-    newCustomResolutionHeight = DEFAULTRESOLUTIONHEIGHT * tempHeight
-    newCustomResolutionWidth = DEFAULTRESOLUTIONWIDTH * tempWidth
-
-    # Set the new resolutions
-    cmds.setAttr('defaultResolution.height', round(newCustomResolutionHeight))
-    cmds.setAttr('defaultResolution.width', round(newCustomResolutionWidth))
-
-    # Save everything to the FINAL object in case of later use
     FINAL['newCustomResolutionHeight'] = newCustomResolutionHeight
     FINAL['newCustomResolutionWidth'] = newCustomResolutionWidth
 
 
-def test():
-    print('hi')
+def setAllTheNewValues():
+    # region Set the focal length to the max focal length
+
+    # Delete all the camera's focal length keys
+    cmds.cutKey(
+        FINAL['selected']['shape'],
+        time=(FINAL['focalLength']['keyframes']['min'],
+              FINAL['focalLength']['keyframes']['max']),
+        attribute='focalLength',
+        option="keys"
+    )
+
+    # Round the value up
+    maxValueRoundedUp = math.ceil(FINAL['focalLength']['value']['max'])
+
+    # Set the new focal length to the max focal length
+    cmds.setAttr(
+        FINAL['selected']['shape'] +
+        '.focalLength', maxValueRoundedUp
+    )
+
+    # endregion
+
+    # region Set the camera's rotation to the rotation averages
+
+    for axis in ['X', 'Y', 'Z']:
+        cmds.cutKey(
+            FINAL['selected']['camera'],
+            time=(FINAL[axis]['keyframes']['min'],
+                  FINAL[axis]['keyframes']['max']),
+            attribute='rotate' + axis,
+            option="keys"
+        )
+
+        # Set the new rotation average
+        cmds.setAttr(FINAL[axis]['attrName'], FINAL[axis]['rotationAverage'])
+
+    # endregion
+
+    # region Set the camera's new apetures
+    cmds.setAttr(
+        FINAL['selected']['shape'] + '.verticalFilmAperture',
+        round(FINAL['heightNewCameraAperture'], 2)
+    )
+    cmds.setAttr(
+        FINAL['selected']['shape'] + '.horizontalFilmAperture',
+        round(FINAL['widthNewCameraAperture'], 2)
+    )
+    # endregion
+
+    # region Set the new render resolutions
+    cmds.setAttr(
+        'defaultResolution.height',
+        round(FINAL['newCustomResolutionHeight'])
+    )
+    cmds.setAttr(
+        'defaultResolution.width',
+        round(FINAL['newCustomResolutionWidth'])
+    )
+    # endregion
+
+    # Make sure pixel aspect ratio is 1
+    cmds.setAttr('defaultResolution.pixelAspect', 1.000)
 
 
-getSelectedCamera()
-# Break all keys on the focal length and set it to the max focal length (rounded up)
-setupFocalLength()
-# Break all rotation value keys, and set the rotation values to the averages
-setupRotations()
-# Round up the height and width to 2 decimals and set in the camera aperture(mm)
-setupFieldOfView()
-# Set width and height resolution in render settings
-setupCustomResolutions()
-# Make sure pixel aspect ratio is 1
-cmds.setAttr('defaultResolution.pixelAspect', 1.000)
-
-# print(rotAvg)
+# This gets all the values we need and stores it in the global FINAL object
+getAllValuesWeNeed()
 PPrint(FINAL)
+# Does all the complicated math using the variables from the global FINAL object
+doTheMath()
+# Set all the new values in Maya
+setAllTheNewValues()

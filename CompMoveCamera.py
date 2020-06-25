@@ -8,11 +8,6 @@ PPrint = pprint.PrettyPrinter(width=10).pprint
 # Object to hold all collected data
 FINAL = {}
 
-STARTINGFILMBACKHEIGHT = 20.25
-STARTINGFILMBACKWIDTH = 36
-DEFAULTRESOLUTIONWIDTH = 1920
-DEFAULTRESOLUTIONHEIGHT = 1080
-
 
 def getAllValuesWeNeed():
     global FINAL
@@ -74,9 +69,13 @@ def getAllValuesWeNeed():
             'min': minKeyframe,
             'max': maxKeyframe,
         },
-        'value': {
+        'valueMillimeters': {
             'min': minFocalLength,
             'max': maxFocalLength,
+        },
+        'valueInches': {
+            'min': minFocalLength / 25.4,
+            'max': maxFocalLength / 25.4,
         }
     }
     # endregion
@@ -133,15 +132,47 @@ def getAllValuesWeNeed():
         }
     # endregion
 
+    # region Get the camera aperatures
+
+    # Save everything to the FINAL object in case of later use
+    aperatureHeight = cmds.getAttr(
+        FINAL['selected']['shape'] + '.verticalFilmAperture'
+    )
+    aperatureWidth = cmds.getAttr(
+        FINAL['selected']['shape'] + '.horizontalFilmAperture'
+    )
+
+    # Save everything to the FINAL object in case of later use
+    FINAL['aperature'] = {
+        'height': aperatureHeight,
+        'width': aperatureWidth
+    }
+    # endregion
+
+    # region Get the current resolutions
+    resolutionHeight = cmds.getAttr(
+        'defaultResolution.height'
+    )
+    resolutionWidth = cmds.getAttr(
+        'defaultResolution.width'
+    )
+
+    # Save everything to the FINAL object in case of later use
+    FINAL['resolution'] = {
+        'height': resolutionHeight,
+        'width': resolutionWidth
+    }
+    # endregion
+
 
 def doTheMath():
     global FINAL
 
-    focalMin = FINAL['focalLength']['value']['min']
-    focalMax = FINAL['focalLength']['value']['min']
+    focalMin = FINAL['focalLength']['valueInches']['min']
+    focalMax = FINAL['focalLength']['valueInches']['min']
 
-    xHeight = STARTINGFILMBACKHEIGHT / (focalMin * 2)
-    yWidth = STARTINGFILMBACKWIDTH / (focalMin * 2)
+    xHeight = FINAL['aperature']['height'] / (focalMin * 2)
+    yWidth = FINAL['aperature']['width'] / (focalMin * 2)
 
     xOriginalFieldOfView = math.atan(xHeight)
     yOriginalFieldOfView = math.atan(yWidth)
@@ -152,11 +183,11 @@ def doTheMath():
     heightNewCameraAperture = (2 * focalMax) * math.tan(xTan)
     widthNewCameraAperture = (2 * focalMax) * math.tan(yTan)
 
-    tempHeight = heightNewCameraAperture / STARTINGFILMBACKHEIGHT
-    tempWidth = widthNewCameraAperture / STARTINGFILMBACKWIDTH
+    tempHeight = heightNewCameraAperture / FINAL['aperature']['height']
+    tempWidth = widthNewCameraAperture / FINAL['aperature']['width']
 
-    newCustomResolutionHeight = DEFAULTRESOLUTIONHEIGHT * tempHeight
-    newCustomResolutionWidth = DEFAULTRESOLUTIONWIDTH * tempWidth
+    newCustomResolutionHeight = FINAL['resolution']['height'] * tempHeight
+    newCustomResolutionWidth = FINAL['resolution']['width'] * tempWidth
 
     # Save everything to the FINAL object in case of later use
     FINAL['X']['originalFieldOfView'] = xOriginalFieldOfView
@@ -180,7 +211,7 @@ def setAllTheNewValues():
     )
 
     # Round the value up
-    maxValueRoundedUp = math.ceil(FINAL['focalLength']['value']['max'])
+    maxValueRoundedUp = math.ceil(FINAL['focalLength']['valueInches']['max'])
 
     # Set the new focal length to the max focal length
     cmds.setAttr(
@@ -235,7 +266,9 @@ def setAllTheNewValues():
 # This gets all the values we need and stores it in the global FINAL object
 getAllValuesWeNeed()
 PPrint(FINAL)
+
 # Does all the complicated math using the variables from the global FINAL object
 doTheMath()
+
 # Set all the new values in Maya
 setAllTheNewValues()

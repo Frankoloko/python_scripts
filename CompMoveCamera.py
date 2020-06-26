@@ -47,50 +47,68 @@ def getAllValuesWeNeed():
 
     # Get the max and min keyframes of the attribute
     keyframes = cmds.keyframe(shapeName, query=True)
-    minKeyframe = int(min(keyframes))
-    maxKeyframe = int(max(keyframes))
+    if keyframes:
+        minKeyframe = int(min(keyframes))
+        maxKeyframe = int(max(keyframes))
 
-    # Reset the min and max variables to a value that will be replaced immediately (we will use it below to hold the min and max values)
-    maxFocalLength = -9999999999
-    minFocalLength = 9999999999
+        # Reset the min and max variables to a value that will be replaced immediately (we will use it below to hold the min and max values)
+        maxFocalLength = -9999999999
+        minFocalLength = 9999999999
 
-    # Loop through every frame between the min and max keyframes
-    for frame in range(minKeyframe, maxKeyframe):
-        # Get the max value of the focal length
-        value = cmds.getAttr(shapeName, time=frame)
-        if value > maxFocalLength:
-            maxFocalLength = value
-        if value < minFocalLength:
-            minFocalLength = value
+        # Loop through every frame between the min and max keyframes
+        for frame in range(minKeyframe, maxKeyframe):
+            # Get the max value of the focal length
+            value = cmds.getAttr(shapeName, time=frame)
+            if value > maxFocalLength:
+                maxFocalLength = value
+            if value < minFocalLength:
+                minFocalLength = value
 
-    # Save everything to the FINAL object in case of later use
-    FINAL['focalLength'] = {
-        'keyframes': {
-            'min': minKeyframe,
-            'max': maxKeyframe,
-        },
-        'valueMillimeters': {
-            'min': minFocalLength,
-            'max': maxFocalLength,
-        },
-        'valueInches': {
-            'min': minFocalLength / 25.4,
-            'max': maxFocalLength / 25.4,
+        # Save everything to the FINAL object in case of later use
+        FINAL['focalLength'] = {
+            'keyframes': {
+                'min': minKeyframe,
+                'max': maxKeyframe,
+            },
+            'valueMillimeters': {
+                'min': minFocalLength,
+                'max': maxFocalLength,
+            },
+            'valueInches': {
+                'min': minFocalLength / 25.4,
+                'max': maxFocalLength / 25.4,
+            }
         }
-    }
-    # endregion
+    else:
+        # Get the current focal length
+        focalLength = cmds.getAttr(shapeName)
+
+        # Save everything to the FINAL object in case of later use
+        FINAL['focalLength'] = {
+            'valueMillimeters': {
+                'min': focalLength,
+                'max': focalLength,
+            },
+            'valueInches': {
+                'min': focalLength / 25.4,
+                'max': focalLength / 25.4,
+            }
+        }
+
+        # endregion
 
     # region Get rotation averages
 
     attrNameBase = FINAL['selected']['camera'] + '.rotate'
 
     # Loop through each axis
-    for axis in ['X', 'Y', 'Z']:
+    for axis in ['X', 'Y']:
         # Setup the attribute name
         attrName = attrNameBase + axis
 
         # Get the max and min keyframes of the attribute
         keyframes = cmds.keyframe(attrName, query=True)
+        print(keyframes)
         minKeyframe = int(min(keyframes))
         maxKeyframe = int(max(keyframes))
 
@@ -201,29 +219,31 @@ def doTheMath():
 def setAllTheNewValues():
     # region Set the focal length to the max focal length
 
-    # Delete all the camera's focal length keys
-    cmds.cutKey(
-        FINAL['selected']['shape'],
-        time=(FINAL['focalLength']['keyframes']['min'],
-              FINAL['focalLength']['keyframes']['max']),
-        attribute='focalLength',
-        option="keys"
-    )
+    # If there are keyframes on the focalLength, then delete all keyframes. Otherwise just leave the current keyframe alone
+    if FINAL['focalLength'].has_key('keyframes'):
+        # Delete all the camera's focal length keys
+        cmds.cutKey(
+            FINAL['selected']['shape'],
+            time=(FINAL['focalLength']['keyframes']['min'],
+                  FINAL['focalLength']['keyframes']['max']),
+            attribute='focalLength',
+            option="keys"
+        )
 
-    # Round the value up
-    maxValueRoundedUp = math.ceil(FINAL['focalLength']['valueInches']['max'])
+        # Round the value up
+        maxValueRoundedUp = math.ceil(
+            FINAL['focalLength']['valueInches']['max'])
 
-    # Set the new focal length to the max focal length
-    cmds.setAttr(
-        FINAL['selected']['shape'] +
-        '.focalLength', maxValueRoundedUp
-    )
-
+        # Set the new focal length to the max focal length
+        cmds.setAttr(
+            FINAL['selected']['shape'] +
+            '.focalLength', maxValueRoundedUp
+        )
     # endregion
 
     # region Set the camera's rotation to the rotation averages
 
-    for axis in ['X', 'Y', 'Z']:
+    for axis in ['X', 'Y']:
         cmds.cutKey(
             FINAL['selected']['camera'],
             time=(FINAL[axis]['keyframes']['min'],

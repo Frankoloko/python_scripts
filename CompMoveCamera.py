@@ -6,7 +6,7 @@ import pprint
 PPrint = pprint.PrettyPrinter(width=10).pprint
 
 # Object to hold all collected data
-FINAL = {}
+FINAL = {'X': {}, 'Y': {}, 'Z': {}}
 
 
 def getAllValuesWeNeed():
@@ -39,6 +39,61 @@ def getAllValuesWeNeed():
     }
 
     # endregion
+
+    # region Get the translate averages
+
+    attrNameBase = FINAL['selected']['camera'] + '.translate'
+
+    # Loop through each axis
+    for axis in ['X', 'Y', 'Z']:
+        # Setup the attribute name
+        attrName = attrNameBase + axis
+
+        # Get the max and min keyframes of the attribute
+        keyframes = cmds.keyframe(attrName, query=True)
+
+        # If there are no keyframes, just return the FINAL object
+        if not keyframes:
+            # Save everything to the FINAL object in case of later use
+            FINAL[axis]['translate'] = {
+                'attrName': attrName,
+                'translateAverage': cmds.getAttr(attrName)
+            }
+            continue
+
+        minKeyframe = int(min(keyframes))
+        maxKeyframe = int(max(keyframes))
+
+        # Reset the min and max variables to a value that will be replaced immediately (we will use it below to hold the min and max values)
+        maxValue = -9999999999
+        minValue = 9999999999
+
+        # Loop through every frame between the min and max keyframes
+        for frame in range(minKeyframe, maxKeyframe):
+
+            # Get the min and max values of the attribute
+            value = cmds.getAttr(attrName, time=frame)
+            if value > maxValue:
+                maxValue = value
+            if value < minValue:
+                minValue = value
+
+        # Get the translate average
+        translateAverage = (maxValue + minValue) / 2
+
+        # Save everything to the FINAL object in case of later use
+        FINAL[axis]['translate'] = {
+            'attrName': attrName,
+            'translateAverage': translateAverage,
+            'value': {
+                'min': minValue,
+                'max': maxValue
+            },
+            'keyframes': {
+                'min': minKeyframe,
+                'max': maxKeyframe
+            }
+        }
 
     # region Get the focal lengths
 
@@ -108,7 +163,23 @@ def getAllValuesWeNeed():
 
         # Get the max and min keyframes of the attribute
         keyframes = cmds.keyframe(attrName, query=True)
-        print(keyframes)
+
+        # If there are no keyframes, just return the FINAL object
+        if not keyframes:
+            rotationAverage = cmds.getAttr(attrName)
+
+            # Field of angle increase (it is the triangle shape in the Word Reference document)
+            fieldOfAngleInRadians = math.radians(rotationAverage)
+
+            # Save everything to the FINAL object in case of later use
+            FINAL[axis]['rotation'] = {
+                'attrName': attrName,
+                'rotationAverage': rotationAverage,
+                'fieldOfAngleInDegrees': rotationAverage,
+                'fieldOfAngleInRadians': fieldOfAngleInRadians
+            }
+            continue
+
         minKeyframe = int(min(keyframes))
         maxKeyframe = int(max(keyframes))
 
@@ -134,7 +205,7 @@ def getAllValuesWeNeed():
         fieldOfAngleInRadians = math.radians(fieldOfAngleInDegrees)
 
         # Save everything to the FINAL object in case of later use
-        FINAL[axis] = {
+        FINAL[axis]['rotation'] = {
             'attrName': attrName,
             'rotationAverage': rotationAverage,
             'fieldOfAngleInDegrees': fieldOfAngleInDegrees,
@@ -146,7 +217,7 @@ def getAllValuesWeNeed():
             'keyframes': {
                 'min': minKeyframe,
                 'max': maxKeyframe
-            },
+            }
         }
     # endregion
 
@@ -195,8 +266,10 @@ def doTheMath():
     xOriginalFieldOfView = math.atan(xHeight)
     yOriginalFieldOfView = math.atan(yWidth)
 
-    xTan = xOriginalFieldOfView + FINAL['X']['fieldOfAngleInRadians']
-    yTan = yOriginalFieldOfView + FINAL['Y']['fieldOfAngleInRadians']
+    xTan = xOriginalFieldOfView + \
+        FINAL['X']['rotation']['fieldOfAngleInRadians']
+    yTan = yOriginalFieldOfView + \
+        FINAL['Y']['rotation']['fieldOfAngleInRadians']
 
     heightNewCameraAperture = (2 * focalMax) * math.tan(xTan)
     widthNewCameraAperture = (2 * focalMax) * math.tan(yTan)
@@ -244,16 +317,38 @@ def setAllTheNewValues():
     # region Set the camera's rotation to the rotation averages
 
     for axis in ['X', 'Y']:
-        cmds.cutKey(
-            FINAL['selected']['camera'],
-            time=(FINAL[axis]['keyframes']['min'],
-                  FINAL[axis]['keyframes']['max']),
-            attribute='rotate' + axis,
-            option="keys"
-        )
+        # If there are keyframes on the rotation, then delete all keyframes. Otherwise just leave the current keyframe alone
+        if FINAL[axis]['rotation'].has_key('keyframes'):
+            cmds.cutKey(
+                FINAL['selected']['camera'],
+                time=(FINAL[axis]['rotation']['keyframes']['min'],
+                      FINAL[axis]['rotation']['keyframes']['max']),
+                attribute='rotate' + axis,
+                option="keys"
+            )
 
         # Set the new rotation average
-        cmds.setAttr(FINAL[axis]['attrName'], FINAL[axis]['rotationAverage'])
+        cmds.setAttr(FINAL[axis]['rotation']['attrName'],
+                     FINAL[axis]['rotation']['rotationAverage'])
+
+    # endregion
+
+    # region Set the camera's translate to the translate averages
+
+    for axis in ['X', 'Y', 'Z']:
+        # If there are keyframes on the translate, then delete all keyframes. Otherwise just leave the current keyframe alone
+        if FINAL[axis]['translate'].has_key('keyframes'):
+            cmds.cutKey(
+                FINAL['selected']['camera'],
+                time=(FINAL[axis]['translate']['keyframes']['min'],
+                      FINAL[axis]['translate']['keyframes']['max']),
+                attribute='translate' + axis,
+                option="keys"
+            )
+
+        # Set the new translate average
+        cmds.setAttr(FINAL[axis]['translate']['attrName'],
+                     FINAL[axis]['translate']['translateAverage'])
 
     # endregion
 
